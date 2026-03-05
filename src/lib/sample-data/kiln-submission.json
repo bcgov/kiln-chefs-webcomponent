@@ -1,0 +1,537 @@
+{
+    "form_definition": {
+        "id": "abbf7f71-ab11-4f1d-b71f-3db785b84e6c",
+        "version": "2",
+        "ministry_id": "2",
+        "last_modified": "2025-09-26T20:36:55.000Z",
+        "title": "Tax Exemption Letter",
+        "form_id": "HR3472",
+        "deployed_to": "dev",
+        "dataSources": [
+            {
+                "body": null,
+                "host": null,
+                "name": "Case",
+                "type": "GET",
+                "order": 1,
+                "params": {
+                    "ViewMode": "Catalog",
+                    "getChildren": "all"
+                },
+                "headers": {
+                    "Authorization": "Bearer @@token@@"
+                },
+                "endpoint": "ICM REST Forms Case/DT Form Instance/@@attachmentId",
+                "description": null
+            },
+            {
+                "body": null,
+                "host": null,
+                "name": "Contact",
+                "type": "GET",
+                "order": 2,
+                "params": {
+                    "ViewMode": "Organization",
+                    "getChildren": "all"
+                },
+                "headers": {
+                    "Authorization": "Bearer @@token@@"
+                },
+                "endpoint": "ICM REST Forms Contact/DT Form Instance/@@attachmentId",
+                "description": null
+            },
+            {
+                "body": null,
+                "host": null,
+                "name": "Service Request",
+                "type": "GET",
+                "order": 3,
+                "params": {
+                    "ViewMode": "Organization",
+                    "getChildren": "all"
+                },
+                "headers": {
+                    "Authorization": "Bearer @@token@@"
+                },
+                "endpoint": "ICM REST Forms Service Request/DT Form Instance/@@attachmentId",
+                "description": null
+            }
+        ],
+        "data": [],
+        "pdf_template_id": null,
+        "interface": [],
+        "scripts": [
+            {
+                "type": "web",
+                "content": "const DEBUG = false;\nconst DEBUG_PREFIX = '[HR3472]';\n\nfunction debug(errorText) {\n    if (DEBUG) {\n        console.log(`${DEBUG_PREFIX} ${errorText}`);\n    }\n}\n\nfunction additionalInit() {\n    debug('Additional Init started');\n    initLetterDate();\n    initLetterToggle();\n    createIdListeners();\n    initPaymentAmountField(); // amount of payment refine to 2 decimal\n    debug('Additional Init ended');\n}\n\nfunction updateNonMoustache() { }\n\n// ============= ELEMENTS IDS =================\nconst ELEMENT_IDS = {\n    TOGGLE_BUTTON: 'show-letter-a37ad442-dabd-45dc-887d-157dca5b1135',\n    FORM_CONTAINER: 'form-b7a7577c-23da-4997-a8da-98060af183a7',\n    LETTER_CONTAINER: 'letter-content-961f5084-585e-4564-ae23-f18eebd455ff',\n    SR_NUMBER: 'service-request-b9d4cb06-5bef-4975-aa62-712615d90f3e' /* Service Request (Text Input) */,\n    CASE_NUMBER: 'case-b1e86eab-8042-4ec5-906d-9a140ce540c6' /* Case (Text Input) */,\n    MIS_NUMBER: 'mis-c6cfdd7e-3fd9-451b-9369-c733eb3098bb' /* MIS (Text Input) */,\n};\n\n// ============== FORM FIELD MAPPING ==============\nlet formElementMapping = {\n    payment_amount: 'payment-amount-ea02d788-f77c-4938-91de-a53698712b76',\n    letter_date: 'letter-date-e999c869-7738-47a9-b3ca-84e2f0bcf98c',\n    client_fullname: 'client-full-name-7666c5bf-e504-4141-b8bd-28e3917797c9',\n    client_street_address: 'street-address-360bb2ee-52f6-4caf-ad99-89f065be068e',\n    client_city: 'city-50474087-ab03-4a53-9eb9-d00f4e2b20a9',\n    client_postal_code: 'postal-code-868c30ba-9fb1-41dc-b771-b69d4601a99c',\n    client_province: 'province-76e57e7c-7666-4854-939c-d28002eb51a6',\n    case_number: '#literal:',\n    sr_number: '#literal:',\n    mis_number: '#literal:'\n};\n\n// -------- CONSTANTS ----- //\nconst UI_STRINGS = {\n    SHOW_LETTER: 'Show Letter',\n    SHOW_FORM: 'Show Form'\n}\n\n// amount of payment helper\nfunction initPaymentAmountField() {\n    const id = formElementMapping.payment_amount;\n    const input = document.getElementById(id);\n    if (!input) return;\n\n    // Limit characters while typing\n    input.addEventListener('input', () => {\n        let v = input.value;\n\n        // Allow only digits + 1 dot\n        v = v.replace(/[^\\d.]/g, '');\n\n        const dotIndex = v.indexOf('.');\n        if (dotIndex !== -1) {\n            // Remove additional dots\n            v = v.slice(0, dotIndex + 1) + v.slice(dotIndex + 1).replace(/\\./g, '');\n        }\n\n        // Limit to 2 decimals\n        const parts = v.split('.');\n        if (parts[1]?.length > 2) {\n            v = parts[0] + '.' + parts[1].slice(0, 2);\n        }\n\n        // If starts with \".\", change to \"0.\"\n        if (v.startsWith('.')) v = '0' + v;\n\n        if (v !== input.value) input.value = v;\n    });\n\n    // Normalize on blur\n    input.addEventListener('blur', () => {\n        let v = input.value.trim();\n\n        // Remove trailing dot: \"12.\" -> \"12\"\n        if (v.endsWith('.')) v = v.slice(0, -1);\n\n        // Leading dot case handled already (\"0.\")\n        input.value = v;\n        updateTemplates();\n    });\n}\n\n// -------- ADDITIONAL UPDATE FUNCTIONS ----- //\nfunction createIdListeners() {\n    const elements = [\n        { id: ELEMENT_IDS.CASE_NUMBER, key: 'case_number', label: 'Case #:' },\n        { id: ELEMENT_IDS.SR_NUMBER, key: 'sr_number', label: 'SR #:' },\n        { id: ELEMENT_IDS.MIS_NUMBER, key: 'mis_number', label: 'MIS #:' }\n    ];\n\n    elements.forEach(e => e.input = document.getElementById(e.id));\n    if (elements.some(e => !e.input)) {\n        console.error(`Required elements not found: ${elements.map(e => e.id).join(', ')}`);\n        return;\n    }\n\n    function updateIds() {\n        elements.forEach(e => {\n            const value = e.input.value.trim();\n            formElementMapping[e.key] = value ? `#literal: ${e.label} ${value}` : '#literal:';\n        });\n        updateTemplates();\n    }\n\n    updateIds();\n\n    elements.forEach(e => {\n        e.input.addEventListener('input', updateIds);\n    });\n}\n\n// Set letter date to current date if empty\n// Set letter date for template only (do not modify the input element)\n// Set letter date in the letter\nfunction initLetterDate() {\n    const letterDateId = formElementMapping.letter_date; // mapped ID\n    const sendDateId = 'send-date';\n\n    const letterDate = document.getElementById(letterDateId);\n    const sendDate = document.getElementById(sendDateId);\n\n    if (!letterDate || !sendDate) {\n        console.error(`Required fields not found: ${letterDateId}, ${sendDateId}`);\n        return;\n    }\n\n    function updateLetterDate() {\n        const dateValue = letterDate.value ? letterDate.value.trim() : '';\n\n        let formattedDate;\n        const options = { year: 'numeric', month: 'long', day: 'numeric' }\n\n        if (dateValue) {\n            // If user entered date, use it\n            const [year, month, day] = dateValue.split('-').map(Number);\n            const dateObj = new Date(year, month - 1, day);\n            formattedDate = dateObj.toLocaleDateString('en-CA', options);\n        } else {\n            // If empty, use current date\n            const today = new Date();\n            formattedDate = today.toLocaleDateString('en-CA', options);\n        }\n\n        sendDate.textContent = formattedDate;\n    }\n\n    updateLetterDate();\n    letterDate.addEventListener('change', updateLetterDate);\n}\n\n// -------- TOGGLE BUTTON ----- //\n\n/**\n * Initialize the letter toggle functionality\n */\nlet UI_STATE = { showLetter: false }; // persisted across re-renders\n\nfunction initLetterToggle() {\n    const { TOGGLE_BUTTON, LETTER_CONTAINER, FORM_CONTAINER } = ELEMENT_IDS;\n    const toggleButton = document.getElementById(TOGGLE_BUTTON);\n    const letterContent = document.getElementById(LETTER_CONTAINER);\n    const formContainer = document.getElementById(FORM_CONTAINER);\n    if (!toggleButton || !formContainer || !letterContent) {\n        console.error(`Required elements not found: ${TOGGLE_BUTTON}, ${LETTER_CONTAINER}, ${FORM_CONTAINER}`);\n        return;\n    }\n\n    function updateUI(showLetter) {\n        debug(`Switching to ${showLetter ? 'letter' : 'form'} view`);\n        letterContent.style.display = showLetter ? '' : 'none';\n        formContainer.style.display = showLetter ? 'none' : '';\n        toggleButton.textContent = showLetter ? UI_STRINGS.SHOW_FORM : UI_STRINGS.SHOW_LETTER;\n    }\n\n    // Initial state: show form, hide letter\n    UI_STATE.showLetter = false;\n    updateUI(UI_STATE.showLetter);\n\n    toggleButton.addEventListener('click', function () {\n        UI_STATE.showLetter = !UI_STATE.showLetter;\n        updateUI(UI_STATE.showLetter);\n    });\n}\n\n//-------- LIBRARY CODE - EXTEND, DO NOT EDIT ----------//\n\n//------- Helper Functions -----//\nfunction renderTextAreaParagraphs(output, val) {\n    output.innerHTML = \"\"; // clear previous output\n\n    // Split by newline variations: \\r\\n (Windows), \\n (Unix), \\r (old Mac)\n    const lines = val.split(/\\r?\\n/);\n\n    lines.forEach(line => {\n        // Decide whether to skip empty lines or render them as blank paragraphs\n        if (line.trim().length === 0) return; // skip empty lines; remove this line to keep blank <p>\n\n        const p = document.createElement(\"p\");\n        p.textContent = line; // safe (escapes HTML)\n        output.appendChild(p);\n    });\n}\n\n//------- Moustache Template Functions -----//\n\n//Uses Mustache v1.0\n// Template data object that will be populated from form inputs\nlet templateData = {};\n\n//Get nested object property using dot notation or array index\nfunction getNestedProperty(obj, path) {\n    return path.split('.').reduce((current, key) => {\n        if (!current || typeof current !== 'object') return undefined;\n        return Array.isArray(current) && !isNaN(key)\n            ? current[Number(key)]\n            : current[key];\n    }, obj);\n}\n\n//Set nested object property using dot notation\nfunction setNestedProperty(obj, path, value) {\n    const keys = path.split(\".\");\n    const lastKey = keys.pop();\n\n    const target = keys.reduce((current, key, index) => {\n        if (!current[key]) {\n            // Check if next key is a number (array index)\n            const nextKey = keys[index + 1];\n            current[key] = !isNaN(nextKey) ? [] : {};\n        }\n        return current[key];\n    }, obj);\n\n    target[lastKey] = value;\n}\n\n//Get form value based on input type\nfunction getFormValue(input) {\n    const value = input.type === \"checkbox\"\n        ? input.checked\n        : input.type === \"number\"\n            ? parseFloat(input.value) || 0\n            : input.tagName === \"TEXTAREA\"\n                ? input.value.split('\\n').map(line => line.trim()).join('\\n') + '\\n'\n                : input.value.trim();\n\n    debug(`ID: ${input.id}, Type: ${input.type}, Value: ${value}`);\n    return value;\n}\n\n//Collect all form data into templateData object using the mapping\nfunction updateTemplateData() {\n    templateData = {};\n\n    // Iterate through the mapping object\n    Object.entries(formElementMapping).forEach(([templateKey, elementId]) => {\n        debug(`Template Key: ${templateKey}`);\n        debug(`Element ID: ${elementId}`);\n\n        // Check if templateKey is a literal value (starts with '#literal:')\n        if (typeof elementId === \"string\" && elementId.startsWith(\"#literal:\")) {\n            const literalValue = elementId.slice(9); // Remove '#literal:' prefix\n            debug(`Using literal value: ${literalValue}`);\n            setNestedProperty(templateData, templateKey, literalValue);\n        } else {\n            // Standard element ID processing\n            const element = document.getElementById(elementId);\n            if (element) {\n                const value = getFormValue(element);\n                setNestedProperty(templateData, templateKey, value);\n            } else {\n                debug(`Element not found: ${elementId}`);\n            }\n        }\n    });\n}\n\n//Process mustache templates\nfunction processTemplates() {\n    debug(\"processTemplates called - unified template processing\");\n\n    document.querySelectorAll(\".moustache\").forEach((el, i) => {\n        if (!el.dataset.originalContent) {\n            el.dataset.originalContent = el.textContent;\n        }\n        let content = el.dataset.originalContent;\n        let val = \"\";\n\n        content = content.replace(/\\{\\{([^}]+)\\}\\}/g, (m, key) => {\n            key = key.trim();\n            val = getNestedProperty(templateData, key);\n            if (val !== undefined && val !== null && val !== \"\") {\n                debug(`Replacing {{${key}}} with \"${val}\"`);\n                return val;\n            } else {\n                debug(`No value for {{${key}}}, clearing`);\n                return \"\"; // empty string if no value\n            }\n        });\n\n        if (typeof val === \"string\" && val.includes(\"\\n\")) {\n            renderTextAreaParagraphs(el, content);\n        } else {\n            el.textContent = content;\n        }\n\n        // Hide element if it's empty after replacement\n        if (!el.textContent.trim()) {\n            el.style.display = \"none\";\n            debug(`Hiding moustache element #${i} (empty)`);\n        } else {\n            el.style.display = \"\";\n            debug(`Showing moustache element #${i}`);\n        }\n    });\n}\n\n//Update templates when form data changes\nfunction updateTemplates() {\n    debug(\"Updating Templates\");\n    updateTemplateData();\n    debug(\"Updated Template Data\");\n    debug(\"Processing Templates\");\n    processTemplates();\n    debug(\"Processed Templates\");\n    //Deal with non moustache fields\n    debug('Updating Non-Moustache Fields');\n    updateNonMoustache();\n    debug('Updated Non-Moustache Fields');\n}\n\nfunction addEventListeners() {\n    Object.entries(formElementMapping).forEach(([templateKey, elementId]) => {\n        debug(\"Processing element:\", templateKey, \"->\", elementId);\n        const element = document.getElementById(elementId);\n        if (element) {\n            debug(\"Element ID: \" + element.id + \" listener attached.\");\n            element.addEventListener(\"input\", updateTemplates);\n            element.addEventListener(\"change\", updateTemplates); // For select and checkbox\n            debug(`Added Event Listener to ${elementId}`);\n        } else {\n            debug(`Element not found: ${elementId}`);\n        }\n    });\n}\n\n// Initialize template system with multiple fallback methods\nfunction initializeTemplateSystem() {\n    debug(\"Initializing Template System\");\n\n    // Store original template content\n    debug(\"Storing Original Template Content\");\n    const moustacheElements = document.querySelectorAll(\".moustache\");\n    moustacheElements.forEach((element) => {\n        element.dataset.originalContent = element.textContent;\n    });\n    debug(`Stored original template content for ${moustacheElements.length} elements`);\n\n    // Add event listeners to form inputs\n    debug(\"Adding Event Listeners to Form Inputs\");\n    addEventListeners();\n    debug(\"Added Event Listeners to Form Inputs\");\n\n    // Initial template processing - runs AFTER date processing is set up\n    debug(\"Running initial template processing\");\n    updateTemplates();\n    debug(\"Template System Initialized\");\n}\n\n// Enhanced production-ready bootstrapping - no reliance on DOM events\n(function () {\n    let globalInitialized = false;\n\n    // More thorough element existence check\n    function elementsExist() {\n        const requiredElements = [\".moustache\"];\n\n        return requiredElements.every((selector) => {\n            const element = document.querySelector(selector);\n            return element !== null && element.offsetParent !== null; // Check if visible\n        });\n    }\n\n    // Force initialization without waiting for events\n    function forceInitialize() {\n        if (globalInitialized) return true;\n\n        debug(\"Attempting force initialization...\");\n\n        if (!elementsExist()) {\n            debug(\"Required elements not found or not visible yet...\");\n            return false;\n        }\n\n        try {\n            debug(\"Elements found - initializing systems...\");\n\n            // Initialize template system\n            initializeTemplateSystem();\n\n            // Run additional initialization\n            additionalInit();\n\n            globalInitialized = true;\n            debug(\"All systems initialized successfully!\");\n            return true;\n        } catch (error) {\n            debug(\"Initialization error: \" + error.message);\n            return false;\n        }\n    }\n\n    // Immediate attempt\n    if (forceInitialize()) return;\n\n    // DOM ready fallback\n    document.addEventListener(\"DOMContentLoaded\", () => setTimeout(forceInitialize, 50));\n\n    // MutationObserver for dynamic content\n    if (window.MutationObserver && document.body) {\n        const observer = new MutationObserver(mutations => {\n            if (globalInitialized) {\n                observer.disconnect();\n                return;\n            }\n\n            if (mutations.some(m => m.type === \"childList\" && m.addedNodes.length > 0)) {\n                setTimeout(forceInitialize, 25);\n            }\n        });\n\n        observer.observe(document.body, { childList: true, subtree: true });\n    }\n})();",
+                "filename": "hr3472-2-web-5a9f2f98-d42f-4e12-b792-1d1358252312"
+            }
+        ],
+        "styles": [
+            {
+                "type": "web",
+                "content": ".letter-header {\r\n    margin-bottom: 2em;\r\n}\r\n\r\n.header-row {\r\n    display: flex;\r\n    justify-content: space-between;\r\n    width: 100%;\r\n}\r\n\r\n.header-row:not(:last-child) {\r\n    margin-bottom: 1em;\r\n}\r\n\r\n.header-row-item {\r\n    flex: 0 1 auto;\r\n    /* Grow and shrink, starting at 50% */\r\n    max-width: 50%;\r\n    min-width: 0;\r\n    /* Prevent overflow issues */\r\n}\r\n\r\n/* Use .left-align and .right-align classes to reorder two .header-row-item elements in the same .header-row without moving the HTML */\r\n.header-row-item.left-align {\r\n    order: 1;\r\n}\r\n\r\n.header-row-item.right-align {\r\n    order: 2;\r\n}\r\n\r\n.letter-body p{\r\n    margin-bottom: 0.75em;\r\n}\r\n\r\n#salutation {\r\n    margin-bottom: 1.5em;\r\n}\r\n\r\n.contact-info {\r\n    margin: 0 auto;\r\n    border-collapse: collapse;\r\n    table-layout: auto;\r\n}\r\n\r\n.contact-info th,\r\n.contact-info td{\r\n    padding: 6px 12px;\r\n    vertical-align: top;\r\n    text-align: left;\r\n}\r\n\r\n.signature {\r\n    margin-top: 3em;\r\n}\r\n\r\n.text-info-field:has(.print-footer) {\r\n    margin: 0 !important;\r\n}\r\n\r\n.footer-columns {\r\n    display: flex;\r\n    margin-top: 10px;\r\n    flex-wrap: nowrap;\r\n    gap: 10px;\r\n}\r\n\r\n.footer-columns .column {\r\n    flex: 1;\r\n    line-height: 1.3;\r\n}\r\n\r\n.horizontal-line {\r\n    border-top: 1px solid #999;\r\n    margin: 10px 0;\r\n}\r\n\r\n@media print {\r\n    @page {\r\n        size: letter;\r\n        margin: 0.5in;\r\n        /* Keep your page margins */\r\n        margin-bottom: 28mm;\r\n    }\r\n\r\n    body {\r\n        padding-bottom: 35mm !important;\r\n    }\r\n\r\n    #letter-content-961f5084-585e-4564-ae23-f18eebd455ff {\r\n        display: block !important;\r\n        margin-bottom: 0 !important;\r\n        padding-bottom: 0 !important;\r\n    }\r\n\r\n    #form-b7a7577c-23da-4997-a8da-98060af183a7 {\r\n        display: none !important;\r\n    }\r\n    \r\n    .page-break {\r\n        break-before: page !important;\r\n    }\r\n\r\n    .print-footer {\r\n        position: fixed !important;\r\n        bottom: 0 !important;\r\n        height: 27mm !important;\r\n        /* Keep your footer height */\r\n        left: 0;\r\n        right: 0;\r\n        width: 100%;\r\n    }\r\n}",
+                "filename": "hr3472-2-web-f42a900a-1f62-4425-a2c4-f6348182a78d"
+            }
+        ],
+        "elements": [
+            {
+                "name": "Form",
+                "tags": [],
+                "type": "container",
+                "uuid": "form-b7a7577c-23da-4997-a8da-98060af183a7",
+                "order": 1,
+                "options": [],
+                "children": [
+                    {
+                        "name": "Letter Date",
+                        "tags": {
+                            "16": null
+                        },
+                        "type": "date-select-input",
+                        "uuid": "letter-date-e999c869-7738-47a9-b3ca-84e2f0bcf98c",
+                        "order": 1,
+                        "options": [],
+                        "help_text": null,
+                        "parent_id": 32969,
+                        "attributes": {
+                            "hideLabel": false,
+                            "labelText": "Letter Date",
+                            "dateFormat": "Y-m-d",
+                            "enableVarSub": false,
+                            "value": "2026-03-04"
+                        },
+                        "description": null,
+                        "is_required": true,
+                        "visible_pdf": true,
+                        "visible_web": true,
+                        "is_read_only": false,
+                        "save_on_submit": true,
+                        "custom_visibility": null,
+                        "value": "2026-03-04"
+                    },
+                    {
+                        "name": "Client Information",
+                        "tags": [],
+                        "type": "container",
+                        "uuid": "client-information-23b02d6b-d50c-4cc1-a86d-793df8c5e9f2",
+                        "order": 2,
+                        "options": [],
+                        "children": [
+                            {
+                                "name": "Full Name",
+                                "tags": [],
+                                "type": "text-input",
+                                "uuid": "client-full-name-7666c5bf-e504-4141-b8bd-28e3917797c9",
+                                "order": 1,
+                                "options": [],
+                                "help_text": null,
+                                "parent_id": 32977,
+                                "attributes": {
+                                    "hideLabel": false,
+                                    "labelText": "Full Name",
+                                    "enableVarSub": false,
+                                    "value": "helen \"gm)uatjun20b\")"
+                                },
+                                "description": null,
+                                "is_required": true,
+                                "visible_pdf": true,
+                                "visible_web": true,
+                                "databindings": [
+                                    {
+                                        "path": "$.['Contact'].['Full Name']",
+                                        "order": 1,
+                                        "source": "Contact",
+                                        "condition": null
+                                    }
+                                ],
+                                "is_read_only": false,
+                                "save_on_submit": true,
+                                "custom_visibility": null,
+                                "value": "helen \"gm)uatjun20b\")"
+                            },
+                            {
+                                "name": "Street Address",
+                                "tags": {
+                                    "27": null
+                                },
+                                "type": "text-input",
+                                "uuid": "street-address-360bb2ee-52f6-4caf-ad99-89f065be068e",
+                                "order": 2,
+                                "options": [],
+                                "help_text": null,
+                                "parent_id": 32977,
+                                "attributes": {
+                                    "hideLabel": false,
+                                    "labelText": "Street Address",
+                                    "enableVarSub": false,
+                                    "value": "9010 Prince Charles Blvd"
+                                },
+                                "description": null,
+                                "is_required": true,
+                                "visible_pdf": true,
+                                "visible_web": true,
+                                "databindings": [
+                                    {
+                                        "path": "$.['Contact'].['ICM Contact Addresses'].['Complete Address']",
+                                        "order": 1,
+                                        "source": "Contact",
+                                        "condition": null
+                                    }
+                                ],
+                                "is_read_only": false,
+                                "save_on_submit": true,
+                                "custom_visibility": null,
+                                "value": "9010 Prince Charles Blvd"
+                            },
+                            {
+                                "name": "City/Town",
+                                "tags": {
+                                    "23": null
+                                },
+                                "type": "text-input",
+                                "uuid": "city-50474087-ab03-4a53-9eb9-d00f4e2b20a9",
+                                "order": 3,
+                                "options": [],
+                                "help_text": null,
+                                "parent_id": 32977,
+                                "attributes": {
+                                    "hideLabel": false,
+                                    "labelText": "City/Town",
+                                    "enableVarSub": false,
+                                    "value": "Surrey"
+                                },
+                                "description": null,
+                                "is_required": true,
+                                "visible_pdf": true,
+                                "visible_web": true,
+                                "databindings": [
+                                    {
+                                        "path": "$.['Contact'].['ICM Contact Addresses'].['City']",
+                                        "order": 1,
+                                        "source": "Contact",
+                                        "condition": null
+                                    }
+                                ],
+                                "is_read_only": false,
+                                "save_on_submit": true,
+                                "custom_visibility": null,
+                                "value": "Surrey"
+                            },
+                            {
+                                "name": "Province",
+                                "tags": {
+                                    "12": null
+                                },
+                                "type": "text-input",
+                                "uuid": "province-76e57e7c-7666-4854-939c-d28002eb51a6",
+                                "order": 4,
+                                "options": [],
+                                "help_text": null,
+                                "parent_id": 32977,
+                                "attributes": {
+                                    "value": "BC",
+                                    "hideLabel": false,
+                                    "labelText": "Province",
+                                    "enableVarSub": false
+                                },
+                                "description": null,
+                                "is_required": true,
+                                "visible_pdf": true,
+                                "visible_web": true,
+                                "databindings": [
+                                    {
+                                        "path": "$.['Contact'].['ICM Contact Addresses'].['State']",
+                                        "order": 1,
+                                        "source": "Contact",
+                                        "condition": null
+                                    }
+                                ],
+                                "is_read_only": false,
+                                "save_on_submit": true,
+                                "custom_visibility": null,
+                                "value": "BC"
+                            },
+                            {
+                                "name": "Postal Code",
+                                "tags": {
+                                    "13": null
+                                },
+                                "type": "text-input",
+                                "uuid": "postal-code-868c30ba-9fb1-41dc-b771-b69d4601a99c",
+                                "order": 5,
+                                "options": [],
+                                "help_text": null,
+                                "parent_id": 32977,
+                                "attributes": {
+                                    "hideLabel": false,
+                                    "labelText": "Postal Code",
+                                    "enableVarSub": false,
+                                    "value": "V3V 1R5"
+                                },
+                                "description": null,
+                                "is_required": true,
+                                "visible_pdf": true,
+                                "visible_web": true,
+                                "databindings": [
+                                    {
+                                        "path": "$.['Contact'].['ICM Contact Addresses'].['Postal Code']",
+                                        "order": 1,
+                                        "source": "Contact",
+                                        "condition": null
+                                    }
+                                ],
+                                "is_read_only": false,
+                                "save_on_submit": true,
+                                "custom_visibility": null,
+                                "value": "V3V 1R5"
+                            },
+                            {
+                                "name": "Service Request",
+                                "tags": [],
+                                "type": "text-input",
+                                "uuid": "service-request-b9d4cb06-5bef-4975-aa62-712615d90f3e",
+                                "order": 6,
+                                "options": [],
+                                "help_text": null,
+                                "parent_id": 32977,
+                                "attributes": {
+                                    "hideLabel": false,
+                                    "labelText": "Service Request #",
+                                    "enableVarSub": false,
+                                    "value": "1-8901860910"
+                                },
+                                "description": null,
+                                "is_required": false,
+                                "visible_pdf": true,
+                                "visible_web": true,
+                                "databindings": [
+                                    {
+                                        "path": "$.['Service Request'].['SR Number']",
+                                        "order": 1,
+                                        "source": "Service Request",
+                                        "condition": null
+                                    }
+                                ],
+                                "is_read_only": false,
+                                "save_on_submit": true,
+                                "custom_visibility": null,
+                                "value": "1-8901860910"
+                            },
+                            {
+                                "name": "Case",
+                                "tags": [],
+                                "type": "text-input",
+                                "uuid": "case-b1e86eab-8042-4ec5-906d-9a140ce540c6",
+                                "order": 7,
+                                "options": [],
+                                "help_text": null,
+                                "parent_id": 32977,
+                                "attributes": {
+                                    "hideLabel": false,
+                                    "labelText": "Case #",
+                                    "enableVarSub": false,
+                                    "value": "1-11615984409"
+                                },
+                                "description": null,
+                                "is_required": false,
+                                "visible_pdf": true,
+                                "visible_web": true,
+                                "databindings": [
+                                    {
+                                        "path": "$.['HLS Case'].['Case Num']",
+                                        "order": 1,
+                                        "source": "Contact",
+                                        "condition": null
+                                    }
+                                ],
+                                "is_read_only": false,
+                                "save_on_submit": true,
+                                "custom_visibility": null,
+                                "value": "1-11615984409"
+                            },
+                            {
+                                "name": "MIS",
+                                "tags": [],
+                                "type": "text-input",
+                                "uuid": "mis-c6cfdd7e-3fd9-451b-9369-c733eb3098bb",
+                                "order": 8,
+                                "options": [],
+                                "help_text": null,
+                                "parent_id": 32977,
+                                "attributes": {
+                                    "hideLabel": false,
+                                    "labelText": "MIS #",
+                                    "enableVarSub": false,
+                                    "value": ""
+                                },
+                                "description": null,
+                                "is_required": false,
+                                "visible_pdf": true,
+                                "visible_web": true,
+                                "databindings": [
+                                    {
+                                        "path": "$.['Legacy File Number']",
+                                        "order": 1,
+                                        "source": "Contact",
+                                        "condition": null
+                                    }
+                                ],
+                                "is_read_only": false,
+                                "save_on_submit": true,
+                                "custom_visibility": null,
+                                "value": ""
+                            }
+                        ],
+                        "help_text": null,
+                        "parent_id": 32969,
+                        "attributes": {
+                            "legend": "Client Information",
+                            "enableVarSub": false,
+                            "isRepeatable": false,
+                            "containerType": "fieldset"
+                        },
+                        "description": null,
+                        "is_required": false,
+                        "visible_pdf": true,
+                        "visible_web": true,
+                        "is_read_only": false,
+                        "save_on_submit": true,
+                        "custom_visibility": null
+                    },
+                    {
+                        "name": "Amount of Payment",
+                        "tags": [],
+                        "type": "text-input",
+                        "uuid": "payment-amount-ea02d788-f77c-4938-91de-a53698712b76",
+                        "order": 3,
+                        "options": [],
+                        "help_text": null,
+                        "parent_id": 32969,
+                        "attributes": {
+                            "hideLabel": false,
+                            "labelText": "Amount of Payment",
+                            "enableVarSub": false,
+                            "value": "100"
+                        },
+                        "description": null,
+                        "is_required": true,
+                        "visible_pdf": true,
+                        "visible_web": true,
+                        "is_read_only": false,
+                        "save_on_submit": true,
+                        "custom_visibility": null,
+                        "value": "100"
+                    }
+                ],
+                "help_text": null,
+                "parent_id": null,
+                "attributes": {
+                    "enableVarSub": false,
+                    "isRepeatable": false,
+                    "containerType": "section"
+                },
+                "description": null,
+                "is_required": false,
+                "visible_pdf": true,
+                "visible_web": true,
+                "is_read_only": false,
+                "save_on_submit": true,
+                "custom_visibility": null
+            },
+            {
+                "name": "Show Letter",
+                "tags": {
+                    "32": null
+                },
+                "type": "button-input",
+                "uuid": "show-letter-a37ad442-dabd-45dc-887d-157dca5b1135",
+                "order": 2,
+                "options": [],
+                "help_text": null,
+                "parent_id": null,
+                "attributes": {
+                    "kind": "primary",
+                    "text": "Show Letter",
+                    "enableVarSub": false
+                },
+                "description": null,
+                "is_required": false,
+                "visible_pdf": true,
+                "visible_web": true,
+                "is_read_only": false,
+                "save_on_submit": true,
+                "custom_visibility": null
+            },
+            {
+                "name": "Letter Content",
+                "tags": [],
+                "type": "text-info",
+                "uuid": "letter-content-961f5084-585e-4564-ae23-f18eebd455ff",
+                "order": 3,
+                "options": [],
+                "help_text": null,
+                "parent_id": null,
+                "attributes": {
+                    "content": "<div class=\"letter-header\">\r\n    <div class=\"header-row\">\r\n        <div class=\"header-row-item\" id=\"send-date\">{{letter_date}}</div>\r\n\r\n        <div class=\"header-row-item\">\r\n            <p class=\"moustache\">{{sr_number}}</p>\r\n            <p class=\"moustache\">{{case_number}}</p>\r\n            <p class=\"moustache\">{{mis_number}}</p>\r\n        </div>\r\n    </div>\r\n\r\n    <div class=\"header-row\">\r\n        <div class=\"header-row-item\">\r\n            <p class=\"moustache\">{{client_fullname}}</p>\r\n            <p class=\"moustache\">{{client_street_address}}</p>\r\n            <p class=\"moustache\">{{client_city}}, {{client_province}} {{client_postal_code}}</p>\r\n        </div>\r\n    </div>\r\n</div>\r\n<div class=\"letter-body\">\r\n    <p id=\"salutation\">\r\n        Dear <span class=\"moustache\">{{client_fullname}}</span>:\r\n    </p>\r\n\r\n    <p>\r\n        <strong>Re: CPP tax exemption on retroactive CPP assigned to the Ministry of Social Development and Poverty Reduction</strong>\r\n    </p>\r\n\r\n    <p>\r\n        You have recently been approved for Canada Pension Plan Disability (CPPD) and are now receiving these\r\n        benefits.\r\n        As the CPPD benefit is a taxable income, you may be required to pay income tax on CPP benefits you receive.\r\n    </p>\r\n\r\n    <p>\r\n        When you completed your CPPD Application Package, you signed the Consent to Deduction and Payment form\r\n        (ISP1613). In signing this form, you authorized Service Canada to repay the Ministry of Social Development\r\n        and\r\n        Poverty Reduction any backdated CPPD benefits to prevent duplicate payments. This agreement makes sure that\r\n        you\r\n        receive the full benefits to which you are entitled while also preventing an overpayment.\r\n    </p>\r\n\r\n    <p>\r\n        The ministry has now received your backdated CPPD benefits from Service Canada and reviewed your income\r\n        assistance file. We are pleased to tell you that you have been found eligible for a one time payment for CPP\r\n        tax exemption.\r\n    </p>\r\n\r\n    <p class=\"moustache\">\r\n        You have been issued a one-time tax liability adjustment in the amount of ${{payment_amount}}. If you have\r\n        previously been set up for Electronic funds transfer, (EFT), the amount of ${{payment_amount}} will be\r\n        deposited into your account. If you were not set up for EFT, please find the enclosed adjustment cheque.\r\n    </p>\r\n\r\n    <div class=\"page-break\"></div>\r\n\r\n    <p>\r\n        Only clients who are eligible for the CPP tax exemption are eligible for the tax liability adjustment.\r\n    </p>\r\n    <p>\r\n        Please contact the ministry at the address or phone number listed below if you have any questions.\r\n    </p>\r\n\r\n\r\n    <table class=\"contact-info\">\r\n        <tr>\r\n            <th scope=\"row\"><strong>Phone:</strong></th>\r\n            <td><strong>1-877-815-2363, option 3.</strong></td>\r\n        </tr>\r\n        <tr>\r\n            <th scope=\"row\"><strong>Mailing Address:</strong></th>\r\n            <td>\r\n                <strong>\r\n                    Provincial CPP Program Services<br>\r\n                    PO Box 9950 Stn Prov Govt<br>\r\n                    Victoria, BC V8W 9R3\r\n                    </strong>\r\n            </td>\r\n        </tr>\r\n    </table>\r\n\r\n    <div class=\"sign-off\">\r\n        <p>Sincerely,</p>\r\n        <div class=\"signature\"></div>\r\n        <p>CPP Program Services </p>\r\n    </div>\r\n</div>"
+                },
+                "description": null,
+                "is_required": false,
+                "visible_pdf": true,
+                "visible_web": true,
+                "is_read_only": true,
+                "save_on_submit": true,
+                "custom_visibility": null
+            },
+            {
+                "name": "Footer",
+                "tags": [],
+                "type": "text-info",
+                "uuid": "footer-9024ae1d-9308-4592-888c-d4a97cd9abd7",
+                "order": 4,
+                "options": [],
+                "help_text": null,
+                "parent_id": null,
+                "attributes": {
+                    "content": "<div class=\"print-footer\">\r\n    The Ministry of Social Development and Poverty Reduction operates under the authority of the\r\n    <em>Employment and Assistance Act</em> and Regulations, and the\r\n    <em>Employment and Assistance for Persons with Disabilities Act</em> and Regulations\r\n\r\n    <div class=\"horizontal-line\"></div>\r\n    <div class=\"footer-columns\">\r\n        <div class=\"column\">\r\n            <strong>\r\n                Ministry of Social<br>\r\n                Development and<br>\r\n                Poverty Reduction\r\n            </strong>\r\n        </div>\r\n        <div class=\"column\">\r\n            <strong>\r\n                Provincial CPP Program<br>\r\n                Services\r\n            </strong>\r\n        </div>\r\n        <div class=\"column\">\r\n            <strong>Mailing Address:</strong><br>\r\n            PO Box 9950 STN PROV GOVT<br>\r\n            Victoria, BC V8W 9R3\r\n        </div>\r\n        <div class=\"column\">\r\n            <strong>Telephone:</strong> 1-877-815-2363 <br>\r\n            <strong>Facsimile:</strong> 1-866-696-5006<br>\r\n        </div>\r\n    </div>\r\n</div>"
+                },
+                "description": null,
+                "is_required": false,
+                "visible_pdf": true,
+                "visible_web": false,
+                "is_read_only": false,
+                "save_on_submit": true,
+                "custom_visibility": null
+            }
+        ],
+        "form_data": {
+            "form_id": 331,
+            "comments": "Duplicated from version 1",
+            "created_at": "2025-09-26T20:36:55.000000Z",
+            "updated_at": "2025-09-26T20:36:55.000000Z",
+            "form_developer": {}
+        },
+        "barcode": null,
+        "status": "",
+        "created_by": "",
+        "created_date": "",
+        "updated_by": "",
+        "updated_date": ""
+    },
+    "data": {
+        "letter-date-e999c869-7738-47a9-b3ca-84e2f0bcf98c": "2026-03-04",
+        "client-full-name-7666c5bf-e504-4141-b8bd-28e3917797c9": "helen \"gm)uatjun20b\")",
+        "street-address-360bb2ee-52f6-4caf-ad99-89f065be068e": "9010 Prince Charles Blvd",
+        "city-50474087-ab03-4a53-9eb9-d00f4e2b20a9": "Surrey",
+        "province-76e57e7c-7666-4854-939c-d28002eb51a6": "BC",
+        "postal-code-868c30ba-9fb1-41dc-b771-b69d4601a99c": "V3V 1R5",
+        "service-request-b9d4cb06-5bef-4975-aa62-712615d90f3e": "1-8901860910",
+        "case-b1e86eab-8042-4ec5-906d-9a140ce540c6": "1-11615984409",
+        "mis-c6cfdd7e-3fd9-451b-9369-c733eb3098bb": "",
+        "payment-amount-ea02d788-f77c-4938-91de-a53698712b76": "100"
+    },
+    "metadata": {
+        "updated_date": "2026-03-04T19:39:04.301Z"
+    },
+    "bound": true
+}
