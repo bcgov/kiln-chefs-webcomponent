@@ -1,42 +1,19 @@
-# sv
+# CHEFS webcomponent + kiln-api
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
-
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
-
-```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-npx sv create --template minimal --types ts --add prettier eslint tailwindcss="plugins:none" --install npm chefs-embed
-```
+Proof of concept demonstrating opening form attachment data from ICM in the CHEFS web component.
 
 ## Developing
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+Requires running kiln-api and Communication-Layer locally, set up to authenticate and pull data from an ICM environment.
 
 ```sh
+cp .env.example .env
+npm install
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
+## Usage
+Currently depends on a hard-coded form.io schema `src/lib/custom-form.json` to match a few fields from an existing FF schema (HR3472)
 
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+1. Create an attachment using template HR3472 on ICM, generate/save it, get the attachmentId.
+2. Go to http://localhost:5174/edit/\[attachmentId\]

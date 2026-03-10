@@ -37,6 +37,14 @@ export interface Submission {
 	id?: string;
 	data?: Record<string, unknown>;
 	submission?: SubmissionNested;
+	metadata: Record<string, string>;
+	state: string;
+	component: {
+		id: string;
+		key: string;
+		action: string;
+		[key: string]: unknown;
+	}
 	[key: string]: unknown;
 }
 

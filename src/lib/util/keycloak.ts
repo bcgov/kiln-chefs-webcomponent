@@ -1,3 +1,6 @@
+/**
+ * Copy-pasted from kiln-v2. Might not be needed
+ */
 import Keycloak from 'keycloak-js';
 import type {
 	KeycloakInitOptions,
